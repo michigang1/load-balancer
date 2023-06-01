@@ -29,6 +29,7 @@ var (
 		"server2:8080",
 		"server3:8080",
 	}
+	healthyServers = make([]string, 3)
 )
 
 func scheme() string {
@@ -89,27 +90,43 @@ func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
 func selectServer(remoteAddr string, servers []string) string {
 	hash := fnv.New32a()
 	_, _ = hash.Write([]byte(remoteAddr))
-	index := int(hash.Sum32()) % len(servers)
+	sum := int(hash.Sum32())
+	index := sum % len(servers)
+	log.Println("hash", sum)
 	log.Println("selected server", index)
 	return servers[index]
 }
 
 func main() {
 	flag.Parse()
-
-	// TODO: Використовуйте дані про стан сервреа, щоб підтримувати список тих серверів, яким можна відправляти ззапит.
-	for _, server := range serversPool {
+	for i, server := range serversPool {
 		server := server
+		i := i
 		go func() {
 			for range time.Tick(10 * time.Second) {
-				log.Println(server, health(server))
+				isHealthy := health(server)
+				if !isHealthy {
+					serversPool[i] = ""
+				} else {
+					serversPool[i] = server
+				}
+
+				healthyServers = healthyServers[:0]
+
+				for _, value := range serversPool {
+					if value != "" {
+						healthyServers = append(healthyServers, value)
+					}
+				}
+
+				log.Println(server, isHealthy)
 			}
 		}()
 	}
 
 	frontend := httptools.CreateServer(*port, http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		// TODO: Рееалізуйте свій алгоритм балансувальника.
-		server := selectServer(r.RemoteAddr, serversPool)
+		remoteAddr := r.RemoteAddr
+		server := selectServer(remoteAddr, healthyServers)
 		forward(server, rw, r)
 	}))
 
