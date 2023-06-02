@@ -28,7 +28,6 @@ var (
 		"server2:8080",
 		"server3:8080",
 	}
-	healthyServers = make([]string, 3)
 )
 
 func scheme() string {
@@ -119,20 +118,24 @@ func (lb *LoadBalancer) GetHealthyServers() []string {
 
 // SelectServer selects a server based on the remote address and the list of healthy servers.
 func (lb *LoadBalancer) SelectServer(remoteAddr string) string {
-	healthyServers = lb.GetHealthyServers()
+	healthyServers := lb.GetHealthyServers()
 	if len(healthyServers) == 0 {
 		log.Println("No healthy servers")
 		return ""
 	} else {
-		serverIndex := hash(remoteAddr)
+		serverIndex := lb.hash(remoteAddr)
 		return healthyServers[serverIndex]
 	}
 }
-func hash(input string) int {
-	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(input))
+func (lb *LoadBalancer) hash(input string) int {
+	hash := fnv.New32()
+	_, err := hash.Write([]byte(input))
+	if err != nil {
+		log.Printf("Failed to compute hash: %s", err)
+		return 0
+	}
 	sum := int(hash.Sum32())
-	index := sum % len(input)
+	index := sum % len(lb.GetHealthyServers())
 	log.Println("hash", sum)
 	log.Println("selected server", index)
 	return index
