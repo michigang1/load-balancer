@@ -86,52 +86,79 @@ func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
 	}
 }
 
-// Selects a server based on the hashed URL path.
-func selectServer(remoteAddr string, servers []string) string {
-	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(remoteAddr))
-	sum := int(hash.Sum32())
-	index := sum % len(servers)
-	log.Println("hash", sum)
-	log.Println("selected server", index)
-	return servers[index]
+type LoadBalancer struct {
+	serversPool    []string
+	healthyServers []string
+	traceEnabled   *bool
+	port           *int
 }
 
-func main() {
-	flag.Parse()
-	for i, server := range serversPool {
-		server := server
-		i := i
-		go func() {
+// NewLoadBalancer creates a new instance of LoadBalancer.
+func NewLoadBalancer(serversPool []string, traceEnabled *bool, port *int) *LoadBalancer {
+	return &LoadBalancer{
+		serversPool:    serversPool,
+		healthyServers: []string{},
+		traceEnabled:   traceEnabled,
+		port:           port,
+	}
+}
+
+// healthCheck periodically checks the health of each server in the serversPool and updates the healthyServers list accordingly.
+func (lb *LoadBalancer) healthCheck() {
+	for i, server := range lb.serversPool {
+		go func(server string, i int) {
 			for range time.Tick(10 * time.Second) {
 				isHealthy := health(server)
 				if !isHealthy {
-					serversPool[i] = ""
+					lb.serversPool[i] = ""
 				} else {
-					serversPool[i] = server
+					lb.serversPool[i] = server
 				}
 
-				healthyServers = healthyServers[:0]
+				lb.healthyServers = lb.healthyServers[:0]
 
-				for _, value := range serversPool {
+				for _, value := range lb.serversPool {
 					if value != "" {
-						healthyServers = append(healthyServers, value)
+						lb.healthyServers = append(lb.healthyServers, value)
 					}
 				}
 
 				log.Println(server, isHealthy)
 			}
-		}()
+		}(server, i)
 	}
+}
 
-	frontend := httptools.CreateServer(*port, http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+// selectServer selects a server based on the remote address and the list of healthy servers.
+func (lb *LoadBalancer) selectServer(remoteAddr string) string {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(remoteAddr))
+	sum := int(hash.Sum32())
+	index := sum % len(lb.healthyServers)
+	log.Println("hash", sum)
+	log.Println("selected server", index)
+	return lb.healthyServers[index]
+}
+
+// Run starts the load balancer and handles incoming requests.
+func (lb *LoadBalancer) Run() {
+	lb.healthCheck()
+
+	frontend := httptools.CreateServer(*lb.port, http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		remoteAddr := r.RemoteAddr
-		server := selectServer(remoteAddr, healthyServers)
+		server := lb.selectServer(remoteAddr)
 		forward(server, rw, r)
 	}))
 
 	log.Println("Starting load balancer...")
-	log.Printf("Tracing support enabled: %t", *traceEnabled)
+	log.Printf("Tracing support enabled: %t", *lb.traceEnabled)
 	frontend.Start()
 	signal.WaitForTerminationSignal()
+}
+
+func main() {
+	flag.Parse()
+
+	lb := NewLoadBalancer(serversPool, traceEnabled, port)
+	lb.Run()
 }
