@@ -3,7 +3,6 @@ package integration
 import (
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -27,31 +26,23 @@ func (b *BalancerIntegrationSuite) TestBalancer(c *C) {
 	if _, exists := os.LookupEnv("INTEGRATION_TEST"); !exists {
 		c.Skip("Integration test is not enabled")
 	}
-
-	if !checkBalancer() {
-		c.Skip("Balancer is not available")
+	testCases := []struct {
+		endpoint string
+		expected string
+	}{
+		{"/api/v1/some-data", "server1:8080"},
+		{"/api/v1/some-data", "server2:8080"},
+		{"/api/v1/some-data", "server3:8080"},
+		{"/api/v1/some-data", "server2:8080"},
 	}
 
-	mockServer := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		rw.WriteHeader(http.StatusOK)
-		rw.Header().Set("lb-from", "mock-server")
-	}))
-
-	resp, err := client.Get(fmt.Sprintf("%s/api/v1/some-data", baseAddress))
-	c.Assert(err, IsNil)
-	c.Assert(http.StatusOK, Equals, resp.StatusCode)
-	c.Assert("mock-server", Equals, resp.Header.Get("lb-from"))
-
-	mockServer.Close()
-}
-func checkBalancer() bool {
-	resp, err := client.Get(baseAddress)
-	if err != nil {
-		return false
+	for _, tc := range testCases {
+		resp, err := client.Get(fmt.Sprintf("%s%s", baseAddress, tc.endpoint))
+		if err != nil {
+			c.Error(err)
+		}
+		c.Check(resp.Header.Get("lb-from"), Equals, tc.expected)
 	}
-	defer resp.Body.Close()
-
-	return resp.StatusCode == http.StatusOK
 }
 
 func (s *BalancerIntegrationSuite) BenchmarkBalancer(c *C) {
