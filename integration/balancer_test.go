@@ -2,11 +2,11 @@ package integration
 
 import (
 	"fmt"
-	"gopkg.in/check.v1"
 	"net/http"
 	"os"
-	"testing"
 	"time"
+
+	"gopkg.in/check.v1"
 )
 
 const baseAddress = "http://balancer:8090"
@@ -43,15 +43,17 @@ func (b *BalancerIntegrationSuite) TestBalancer(c *check.C) {
 		}
 		c.Check(resp.Header.Get("lb-from"), check.Equals, tc.expected)
 	}
-
-	//// TODO: Реалізуйте інтеграційний тест для балансувальникка.
-	//resp, err := client.Get(fmt.Sprintf("%s/api/v1/some-data", baseAddress))
-	//if err != nil {
-	//	c.Error(err)
-	//}
-	//c.Logf("response from [%s]", resp.Header.Get("lb-from"))
 }
 
-func BenchmarkBalancer(b *testing.B) {
-	// TODO: Реалізуйте інтеграційний бенчмарк для балансувальникка.
+func (s *BalancerIntegrationSuite) BenchmarkBalancer(c *check.C) {
+	if _, exists := os.LookupEnv("INTEGRATION_TEST"); !exists {
+		c.Skip("Integration test is not enabled")
+	}
+
+	for i := 0; i < c.N; i++ {
+		_, err := client.Get(fmt.Sprintf("%s/api/v1/some-data", baseAddress))
+		if err != nil {
+			c.Error(err)
+		}
+	}
 }
