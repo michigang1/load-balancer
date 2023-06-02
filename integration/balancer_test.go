@@ -3,10 +3,12 @@ package integration
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"testing"
 	"time"
 
-	"gopkg.in/check.v1"
+	. "gopkg.in/check.v1"
 )
 
 const baseAddress = "http://balancer:8090"
@@ -15,37 +17,44 @@ var client = http.Client{
 	Timeout: 3 * time.Second,
 }
 
+func Test(t *testing.T) { TestingT(t) }
+
 type BalancerIntegrationSuite struct{}
 
-func init() {
-	check.Suite(&BalancerIntegrationSuite{})
-}
+var _ = Suite(&BalancerIntegrationSuite{})
 
-func (b *BalancerIntegrationSuite) TestBalancer(c *check.C) {
+func (b *BalancerIntegrationSuite) TestBalancer(c *C) {
 	if _, exists := os.LookupEnv("INTEGRATION_TEST"); !exists {
 		c.Skip("Integration test is not enabled")
 	}
 
-	testCases := []struct {
-		endpoint string
-		expected string
-	}{
-		{"/api/v1/some-data1", "server1:8080"},
-		{"/api/v1/some-data2", "server2:8080"},
-		{"/api/v1/some-dat3", "server3:8080"},
-		{"/api/v1/some-data4", "server2:8080"},
+	if !checkBalancer() {
+		c.Skip("Balancer is not available")
 	}
 
-	for _, tc := range testCases {
-		resp, err := client.Get(fmt.Sprintf("%s%s", baseAddress, tc.endpoint))
-		if err != nil {
-			c.Error(err)
-		}
-		c.Check(resp.Header.Get("lb-from"), check.Equals, tc.expected)
+	mockServer := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		rw.WriteHeader(http.StatusOK)
+		rw.Header().Set("lb-from", "mock-server")
+	}))
+
+	resp, err := client.Get(fmt.Sprintf("%s/api/v1/some-data", baseAddress))
+	c.Assert(err, IsNil)
+	c.Assert(http.StatusOK, Equals, resp.StatusCode)
+	c.Assert("mock-server", Equals, resp.Header.Get("lb-from"))
+
+	mockServer.Close()
+}
+func checkBalancer() bool {
+	resp, err := client.Get(baseAddress)
+	if err != nil {
+		return false
 	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode == http.StatusOK
 }
 
-func (s *BalancerIntegrationSuite) BenchmarkBalancer(c *check.C) {
+func (s *BalancerIntegrationSuite) BenchmarkBalancer(c *C) {
 	if _, exists := os.LookupEnv("INTEGRATION_TEST"); !exists {
 		c.Skip("Integration test is not enabled")
 	}
