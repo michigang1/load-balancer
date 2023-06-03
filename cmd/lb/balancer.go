@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -28,6 +29,7 @@ var (
 		"server2:8080",
 		"server3:8080",
 	}
+	mutex sync.Mutex
 )
 
 func scheme() string {
@@ -38,7 +40,8 @@ func scheme() string {
 }
 
 func health(dst string) bool {
-	ctx, _ := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, "GET",
 		fmt.Sprintf("%s://%s/health", scheme(), dst), nil)
 	resp, err := http.DefaultClient.Do(req)
@@ -52,7 +55,9 @@ func health(dst string) bool {
 }
 
 func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
-	ctx, _ := context.WithTimeout(r.Context(), timeout)
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+
 	fwdRequest := r.Clone(ctx)
 	fwdRequest.RequestURI = ""
 	fwdRequest.URL.Host = dst
@@ -69,6 +74,7 @@ func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
 		if *traceEnabled {
 			rw.Header().Set("lb-from", dst)
 		}
+		log.Printf("Succesful response from %s", dst)
 		log.Println("fwd", resp.StatusCode, resp.Request.URL)
 		rw.WriteHeader(resp.StatusCode)
 		defer resp.Body.Close()
@@ -78,7 +84,7 @@ func forward(dst string, rw http.ResponseWriter, r *http.Request) error {
 		}
 		return nil
 	} else {
-		log.Printf("Failed to get response from %s: %s", dst, err)
+		log.Printf("Try to get response from %s: %s", dst, err)
 		rw.WriteHeader(http.StatusServiceUnavailable)
 		return err
 	}

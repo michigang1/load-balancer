@@ -13,7 +13,7 @@ var target = flag.String("target", "http://localhost:8090", "request target")
 func main() {
 	flag.Parse()
 	client := new(http.Client)
-	client.Timeout = 10 * time.Second
+	client.Timeout = 20 * time.Second
 
 	for range time.Tick(1 * time.Second) {
 		resp, err := client.Get(fmt.Sprintf("%s/api/v1/some-data", *target))
