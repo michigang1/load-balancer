@@ -143,7 +143,7 @@ func (lb *LoadBalancer) hash(input string) int {
 	sum := int(hash.Sum32())
 	index := sum % len(lb.GetHealthyServers())
 	log.Println("hash", sum)
-	log.Println("selected server", index)
+	log.Println("selected server", index+1)
 	return index
 }
 
